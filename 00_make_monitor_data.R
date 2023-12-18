@@ -18,4 +18,4 @@ out_df$pm25 = rnorm(nrow(out_df))
 out_df$pm25 = out_df$pm25 + dcycle
 plot(out_df$pm25 + dcycle, type = 'l', xlim = c(0, 100))
 
-write_csv(out_df, "./data/monitors_rnd.csv", row.names = FALSE)
+write_csv(out_df, "./data/monitors_rnd.csv")
