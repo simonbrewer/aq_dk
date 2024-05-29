@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import geopandas as gpd
 import datetime
 from sklearn import ensemble
+import rbf_utils
 
 ## -----------------------
 ## Prep grid (mostly for bounds)
@@ -35,10 +36,11 @@ grid_crds['normalized_north'] = (grid_crds['y']-min_y)/(max_y-min_y)
 
 ## -----------------------
 ## Air monitor data
-aq_df = pd.read_csv("./data/loop_test/summer23_ozone_stationary.csv")
+aq_df = pd.read_csv("./data/loop_test/summer23_temp_stationary.csv")
 aq_df['day_time'] = pd.to_datetime(aq_df['day_time']).dt.tz_localize(None)
 ## add the timezone:
 aq_df['day_time'] = aq_df['day_time'] + pd.Timedelta(hours=7)
+aq_df['sample.measurement'] = (aq_df['sample.measurement'] - 32) * 5/9
 
 ## Convert to geopandas
 aq_gdf = gpd.GeoDataFrame(
@@ -62,7 +64,8 @@ ebus2_df = pd.DataFrame({
     'lon': ebus.iloc[:,3],
     'lat': ebus.iloc[:,2]
     })
-ebus2_df['val'] = ebus['O3'] / 1000
+# ebus2_df['val'] = ebus['O3'] / 1000
+ebus2_df['val'] = ebus['TT']
 
 ## Convert to geopandas
 ebus2_gdf = gpd.GeoDataFrame(
@@ -81,59 +84,6 @@ ebus2_df['normalized_north'] = (lat-min_y)/(max_y-min_y)
 #plt.plot(ebus2_df['normalized_east'], ebus2_df['normalized_north'], 'ro', markersize=2)
 #plt.plot(aq_df['normalized_east'], aq_df['normalized_north'], 'go')
 #plt.show()
-
-## -----------------------
-## Basis functions
-
-## Function to make knots in 1D space/time [0, 1]. Pass vector of number of knots in 1D
-def make_knots_time(n):
-    knots = [np.linspace(0,1,int(i)) for i in n]
-    return(knots)
-
-## Function to make Gaussian BFs along one dimension
-def get_basis_gaussian_1d(s, num_basis, knots, std_arr):
-    N = len(s)
-    phi = np.zeros((N, sum(num_basis)))
-    K = 0
-    for res in range(len(num_basis)):
-        std = std_arr[res]
-        for i in range(num_basis[res]):
-            d = np.square(np.absolute(s-knots[res][i]))
-            for j in range(len(d)):
-                if d[j] >= 0 and d[j] <= 1:
-                    phi[j,i + K] = np.exp(-0.5 * d[j]/(std**2))
-                else:
-                    phi[j,i + K] = 0
-        K = K + num_basis[res]
-    return(phi)
-
-## Function to make knots in 2D space [0, 1]. Pass vector of number of knots in 2D (i.e. res of 5, pass 25)
-def make_knots_space(n):
-    knots = [np.linspace(0,1,int(np.sqrt(i))) for i in n]
-    return knots
-
-## Function to make Wendland BFs over two dimensions
-def get_basis_wendland_2d(s, num_basis, knots_1d):
-    ## Get weights from Wendland kernel
-    N = len(s)
-    K = 0
-    phi = np.zeros((N, sum(num_basis)))
-    for res in range(len(num_basis)):
-        theta = 1/np.sqrt(num_basis[res])*2.5
-        knots_s1, knots_s2 = np.meshgrid(knots_1d[res],knots_1d[res])
-        knots = np.column_stack((knots_s1.flatten(),knots_s2.flatten()))
-        for i in range(num_basis[res]):
-            d = np.linalg.norm(s-knots[i,:],axis=1)/theta
-            for j in range(len(d)):
-                if d[j] >= 0 and d[j] <= 1:
-                    phi[j,i + K] = (1-d[j])**6 * (35 * d[j]**2 + 18 * d[j] + 3)/3
-                else:
-                    phi[j,i + K] = 0
-        K = K + num_basis[res]
-    return(phi)
-
-## -----------------------
-## Main loop
 
 all_days = aq_df.date.unique()
 all_days = all_days[6:]
@@ -158,19 +108,19 @@ for i in all_days:
     ## Create knots for time basis - 14 day basis function (/2 for 7 day)
     num_basis_t = [10,20,56]
     std_arr_t = [0.3,0.15,0.05]
-    knots_1d_t = make_knots_time(num_basis_t)
+    knots_1d_t = rbf_utils.make_knots_time(num_basis_t)
 
     ## Create time basis for monitor data
     s = np.array(aq_df_sub['normalized_time']).reshape(len(aq_df_sub),1)
-    phi_t1 = get_basis_gaussian_1d(s, num_basis_t, knots_1d_t, std_arr_t)
+    phi_t1 = rbf_utils.get_basis_gaussian_1d(s, num_basis_t, knots_1d_t, std_arr_t)
 
     ## Knots for spatial dimension (from STDK example)
     num_basis_s = [7**2,13**2,25**2] ## For 60km grid this is 10/5/2.5 resolution
-    knots_1d_s = make_knots_space(num_basis_s)
+    knots_1d_s = rbf_utils.make_knots_space(num_basis_s)
     
     ## Create time basis for monitor data
     s = np.vstack((aq_df_sub['normalized_east'],aq_df_sub['normalized_north'])).T
-    phi_s1 = get_basis_wendland_2d(s, num_basis_s, knots_1d_s)
+    phi_s1 = rbf_utils.get_basis_wendland_2d(s, num_basis_s, knots_1d_s)
 
     phi_1 = np.hstack((phi_t1,phi_s1))
     idx_zero = np.array([], dtype=int)
@@ -192,10 +142,10 @@ for i in all_days:
     ebus2_df_sub['normalized_time'] = (day_time - min_t) / (max_t-min_t)
 
     s = np.array(ebus2_df_sub['normalized_time']).reshape(len(ebus2_df_sub),1)
-    phi_t2 = get_basis_gaussian_1d(s, num_basis_t, knots_1d_t, std_arr_t)
+    phi_t2 = rbf_utils.get_basis_gaussian_1d(s, num_basis_t, knots_1d_t, std_arr_t)
 
     s = np.vstack((ebus2_df_sub['normalized_east'],ebus2_df_sub['normalized_north'])).T
-    phi_s2 = get_basis_wendland_2d(s, num_basis_s, knots_1d_s)
+    phi_s2 = rbf_utils.get_basis_wendland_2d(s, num_basis_s, knots_1d_s)
 
     phi_2 = np.hstack((phi_t2,phi_s2))
     phi_2_reduce = np.delete(phi_2,idx_zero,1)
@@ -220,7 +170,7 @@ for i in all_days:
 
         ## Write out
         print(i)
-        ebus2_df_sub.to_csv("./output/adj_" + str(target_date.date()) + ".csv", sep=',', index=False)
+        ebus2_df_sub.to_csv("./output/tmp/adj_" + str(target_date.date()) + ".csv", sep=',', index=False)
 
     #plt.plot(ebus2_df_sub['val'])
     #plt.plot(ebus2_df_sub['yhat'])
