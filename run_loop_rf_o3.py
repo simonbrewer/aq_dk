@@ -36,10 +36,13 @@ grid_crds['normalized_north'] = (grid_crds['y']-min_y)/(max_y-min_y)
 
 ## -----------------------
 ## Air monitor data
-aq_df = pd.read_csv("./data/loop_test/summer23_ozone_stationary.csv")
-aq_df['day_time'] = pd.to_datetime(aq_df['day_time']).dt.tz_localize(None)
+# aq_df = pd.read_csv("./data/loop_test/summer23_ozone_stationary.csv")
+aq_df = pd.read_csv("./data/aq2023/stationary_o3.csv")
+
+# aq_df['day_time'] = pd.to_datetime(aq_df['day_time']).dt.tz_localize(None)
+aq_df['date_time'] = pd.to_datetime(aq_df['date']) + pd.to_timedelta(aq_df['hour'], unit='h') + pd.Timedelta(minutes=30)
 ## add the timezone:
-aq_df['day_time'] = aq_df['day_time'] + pd.Timedelta(hours=7)
+# aq_df['day_time'] = aq_df['day_time'] + pd.Timedelta(hours=7)
 
 ## Convert to geopandas
 aq_gdf = gpd.GeoDataFrame(
@@ -56,14 +59,16 @@ aq_df['normalized_north'] = (lat-min_y)/(max_y-min_y)
 
 ## -----------------------
 ## EBus data
-ebus = pd.read_csv("./data/loop_test/ebus_2023_06-07.csv", header = [0,1],  
+ebus = pd.read_csv("./data/aq2023/mobile_o3.csv", # header = [0,1],  
                  na_values = -9999.00)
 ebus2_df = pd.DataFrame({
-    'time': pd.to_datetime(ebus.iloc[:,1]),
-    'lon': ebus.iloc[:,3],
-    'lat': ebus.iloc[:,2]
+    'date_time': pd.to_datetime(ebus['times'], errors='coerce'),
+    'lon': ebus['LON'],
+    'lat': ebus['LAT']
     })
 ebus2_df['val'] = ebus['O3'] / 1000
+# ebus2_df['date_time'] = pd.to_datetime(ebus2_df['date_time'])
+ebus2_df.loc[pd.isnull(ebus2_df['date_time']),'date_time'] = pd.to_datetime(ebus['times'][pd.isnull(ebus2_df['date_time'])])
 
 ## Convert to geopandas
 ebus2_gdf = gpd.GeoDataFrame(
@@ -96,12 +101,12 @@ for i in all_days:
     print("Prepping monitor data")
     start_date_train = target_date - pd.to_timedelta(7, unit='d')
     stop_date_train = target_date + pd.to_timedelta(1, unit='d')
-    aq_df_sub = aq_df[(aq_df['day_time'] >= start_date_train) & (aq_df['day_time'] < stop_date_train)].copy()
+    aq_df_sub = aq_df[(aq_df['date_time'] >= start_date_train) & (aq_df['date_time'] < stop_date_train)].copy()
 
-    day_time = aq_df_sub['day_time'].astype('int64') / 1e9 ## Time in nanoseconds
-    min_t = day_time.min()
-    max_t = day_time.max()
-    aq_df_sub['normalized_time'] = (day_time - min_t) / (max_t-min_t)
+    date_time = aq_df_sub['date_time'].astype('int64') / 1e9 ## Time in nanoseconds
+    min_t = date_time.min()
+    max_t = date_time.max()
+    aq_df_sub['normalized_time'] = (date_time - min_t) / (max_t-min_t)
 
     ## Create knots for time basis - 14 day basis function (/2 for 7 day)
     num_basis_t = [10,20,56]
@@ -134,10 +139,10 @@ for i in all_days:
     print("Prepping EBus data")
     start_date_pred = target_date - pd.to_timedelta(1, unit='d')
     stop_date_pred = target_date + pd.to_timedelta(1, unit='d')
-    ebus2_df_sub = ebus2_df[(ebus2_df['time'] >= target_date) & (ebus2_df['time'] < stop_date_pred)].copy()
+    ebus2_df_sub = ebus2_df[(ebus2_df['date_time'] >= target_date) & (ebus2_df['date_time'] < stop_date_pred)].copy()
 
-    day_time = ebus2_df_sub['time'].astype('int64') / 1e9 ## Time in nanoseconds
-    ebus2_df_sub['normalized_time'] = (day_time - min_t) / (max_t-min_t)
+    date_time = ebus2_df_sub['date_time'].astype('int64') / 1e9 ## Time in nanoseconds
+    ebus2_df_sub['normalized_time'] = (date_time - min_t) / (max_t-min_t)
 
     s = np.array(ebus2_df_sub['normalized_time']).reshape(len(ebus2_df_sub),1)
     phi_t2 = rbf_utils.get_basis_gaussian_1d(s, num_basis_t, knots_1d_t, std_arr_t)

@@ -36,7 +36,8 @@ grid_crds['normalized_north'] = (grid_crds['y']-min_y)/(max_y-min_y)
 
 ## -----------------------
 ## Air monitor data
-aq_df = pd.read_csv("./data/loop_test/summer23_ozone_stationary.csv")
+# aq_df = pd.read_csv("./data/loop_test/summer23_ozone_stationary.csv")
+aq_df = pd.read_csv("./data/aq2023/stationary_o3_2.csv")
 aq_df['day_time'] = pd.to_datetime(aq_df['day_time']).dt.tz_localize(None)
 ## add the timezone:
 aq_df['day_time'] = aq_df['day_time'] + pd.Timedelta(hours=7)
@@ -90,6 +91,7 @@ for site in aq_sites:
     print("## -------------- ##")
     print(f"Running site: {site}")
     train = aq_df[aq_df['site.num'] != site]
+    # train = aq_df
     print(f"Train dims {train.shape}")
     test = aq_df[aq_df['site.num'] == site]
     print(f"Test dims {test.shape}")
@@ -154,8 +156,8 @@ for site in aq_sites:
         test_sub = test[(test['day_time'] >= start_date_pred) & (test['day_time'] < stop_date_pred)].copy()
 
         day_time = test_sub['day_time'].astype('int64') / 1e9 ## Time in nanoseconds
-        min_t = day_time.min()
-        max_t = day_time.max()
+        # min_t = day_time.min()
+        # max_t = day_time.max()
         test_sub['normalized_time'] = (day_time - min_t) / (max_t-min_t)
 
         s = np.array(test_sub['normalized_time']).reshape(len(test_sub),1)
@@ -187,7 +189,7 @@ for site in aq_sites:
 
             ## Write out
             print(i)
-            test_sub.to_csv("./xv_output/" + str(site) + "_adj_" + str(target_date.date()) + ".csv", sep=',', index=False)
+            test_sub.to_csv("./xv_output/o3_rf/" + str(site) + "_adj_" + str(target_date.date()) + ".csv", sep=',', index=False)
 
         #plt.plot(ebus2_df_sub['val'])
         #plt.plot(ebus2_df_sub['yhat'])
